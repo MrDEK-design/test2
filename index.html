@@ -18,7 +18,6 @@
         
         .message-in { animation: slideInLeft 0.3s ease forwards; }
         .message-out { animation: slideInRight 0.3s ease forwards; }
-
         
         @keyframes slideInLeft { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
         @keyframes slideInRight { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: translateX(0); } }
@@ -35,7 +34,7 @@
 </head>
 <body class="h-screen flex flex-col overflow-hidden selection:bg-[#0a84ff]/30 relative">
 
-    <!-- SETUP OVERLAY (Створення/Вхід в кімнату) -->
+    <!-- SETUP OVERLAY -->
     <div id="setup-screen" class="absolute inset-0 z-50 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center p-4 transition-opacity duration-300">
         <div class="bg-[#1c1c1e] border border-white/10 rounded-3xl p-6 w-full max-w-sm shadow-2xl flex flex-col gap-4">
             <h2 class="text-xl font-semibold text-center mb-2">Налаштування Чату</h2>
@@ -81,7 +80,7 @@
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8l6 6"/><path d="M4 14l6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="M22 22l-5-10-5 10"/><path d="M14 18h6"/></svg>
             </div>
             <div>
-                <h1 class="text-[15px] font-semibold text-white tracking-tight leading-tight" id="chat-title">Транслятор</h1>
+                <h1 class="text-[15px] font-semibold text-white tracking-tight leading-tight" id="chat-title">Транслятор (Local Test)</h1>
                 <div class="flex items-center gap-1 cursor-pointer hover:text-white transition-colors group" onclick="copyRoomKey()">
                     <p class="text-[11px] text-[#86868b] font-medium" id="room-key-display">Ключ: -</p>
                     <svg class="opacity-0 group-hover:opacity-100 transition-opacity" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
@@ -96,7 +95,7 @@
     <main id="chat-container" class="flex-1 overflow-y-auto px-4 pt-20 pb-28 md:px-20 lg:px-64 flex flex-col gap-4 scroll-smooth">
         <div class="text-center mt-10" id="empty-state">
             <p class="text-[#86868b] text-sm">Чат порожній.</p>
-            <p class="text-[#86868b] text-xs mt-1">Скопіюйте ключ зверху та передайте співрозмовнику.</p>
+            <p class="text-[#86868b] text-xs mt-1">Скопіюйте ключ зверху та відкрийте іншу вкладку для тесту.</p>
         </div>
     </main>
 
@@ -119,74 +118,33 @@
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
                 </button>
             </div>
-            <p class="text-center text-[10px] text-[#86868b] mt-3 font-medium" id="status-text">Переклад працює через Pollinations AI</p>
+            <p class="text-center text-[10px] text-[#86868b] mt-3 font-medium" id="status-text">Переклад працює через Pollinations AI | Локальний режим (без БД)</p>
         </div>
     </footer>
 
-    <!-- Firebase SDK Imports -->
-    <script type="module">
-        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
-        import { getFirestore, collection, addDoc, onSnapshot, serverTimestamp, query, orderBy } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
-
+    <script>
         // Variables
-        let db, auth, currentUser, currentRoomKey, myName, myLang, unsubscribeChat = null;
+        let currentUserId = getOrCreateUserId();
+        let currentRoomKey, myName, myLang;
         let processedMessageIds = new Set();
-        
-        // Canvas Environment Variables Injection
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'standalone-translator-app';
-        let firebaseConfig = null;
+        let storageListener = null;
 
-        try {
-            if (typeof __firebase_config !== 'undefined') {
-                firebaseConfig = JSON.parse(__firebase_config);
-            } else {
-                // FALLBACK FOR GITHUB PAGES (You MUST replace this object with your own Firebase project config when hosting on Github)
-                firebaseConfig = {
-                    apiKey: "YOUR_API_KEY",
-                    authDomain: "YOUR_AUTH_DOMAIN",
-                    projectId: "YOUR_PROJECT_ID",
-                    storageBucket: "YOUR_STORAGE_BUCKET",
-                    messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-                    appId: "YOUR_APP_ID"
-                };
+        // Generate a fake user ID for local testing
+        function getOrCreateUserId() {
+            let id = localStorage.getItem('local_user_id');
+            if (!id) {
+                id = 'user_' + Math.random().toString(36).substr(2, 9);
+                localStorage.setItem('local_user_id', id);
             }
-
-            const app = initializeApp(firebaseConfig);
-            auth = getAuth(app);
-            db = getFirestore(app);
-
-            // Auth Logic (Canvas rules compliance)
-            const initAuth = async () => {
-                try {
-                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                        await signInWithCustomToken(auth, __initial_auth_token);
-                    } else {
-                        await signInAnonymously(auth);
-                    }
-                } catch(e) {
-                    console.error("Auth failed. Check Firebase config.", e);
-                    showSetupError("Помилка підключення до сервера (Firebase).");
-                }
-            };
-            initAuth();
-
-            onAuthStateChanged(auth, (user) => {
-                currentUser = user;
-                if(user) {
-                    console.log("Authenticated as:", user.uid);
-                }
-            });
-
-        } catch (error) {
-            console.error("Firebase init error:", error);
-            showSetupError("База даних не налаштована. Потрібен Firebase.");
+            return id;
         }
 
         // Global functions accessible from HTML
         window.createRoom = () => {
             if (!validateSetup()) return;
             const newKey = Math.random().toString(36).substring(2, 8).toUpperCase();
+            // Create empty room in local storage
+            localStorage.setItem(`room_${newKey}`, JSON.stringify([]));
             enterChat(newKey);
         };
 
@@ -201,9 +159,9 @@
         };
 
         window.leaveRoom = () => {
-            if (unsubscribeChat) {
-                unsubscribeChat();
-                unsubscribeChat = null;
+            if (storageListener) {
+                window.removeEventListener('storage', storageListener);
+                storageListener = null;
             }
             processedMessageIds.clear();
             document.getElementById('chat-container').innerHTML = `
@@ -218,7 +176,6 @@
 
         window.copyRoomKey = () => {
             if (currentRoomKey) {
-                // Fallback copying method for iframes
                 const el = document.createElement('textarea');
                 el.value = currentRoomKey;
                 document.body.appendChild(el);
@@ -235,25 +192,33 @@
         window.sendMessage = async () => {
             const input = document.getElementById('message-input');
             const text = input.value.trim();
-            if (!text || !currentUser || !currentRoomKey) return;
+            if (!text || !currentRoomKey) return;
 
             input.value = '';
             input.style.height = 'auto';
             document.getElementById('send-btn').disabled = true;
 
             try {
-                // Rule 1 strictly followed
-                const roomCollection = collection(db, 'artifacts', appId, 'public', 'data', `room_${currentRoomKey}`);
-                await addDoc(roomCollection, {
-                    senderId: currentUser.uid,
+                const message = {
+                    id: 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                    senderId: currentUserId,
                     senderName: myName,
                     originalText: text,
                     sourceLang: myLang,
-                    timestamp: serverTimestamp() // We rely on client-side sorting as a fallback to avoid complex queries (Rule 2)
-                });
+                    timestamp: Date.now()
+                };
+
+                const roomKey = `room_${currentRoomKey}`;
+                let roomData = JSON.parse(localStorage.getItem(roomKey) || '[]');
+                roomData.push(message);
+                localStorage.setItem(roomKey, JSON.stringify(roomData));
+
+                // Storage event doesn't fire for the tab that made the change, so we trigger UI update manually
+                processIncomingMessage(message);
+
             } catch (error) {
                 console.error("Error sending:", error);
-                alert("Помилка відправки. Перевірте з'єднання.");
+                alert("Помилка відправки.");
             } finally {
                 document.getElementById('send-btn').disabled = false;
                 input.focus();
@@ -274,10 +239,6 @@
             myLang = document.getElementById('setup-lang').value;
             if (!myName) {
                 showSetupError("Введіть своє ім'я");
-                return false;
-            }
-            if (!currentUser) {
-                showSetupError("Зачекайте, йде підключення до сервера...");
                 return false;
             }
             return true;
@@ -302,49 +263,44 @@
         }
 
         function listenToRoom(key) {
-            if (unsubscribeChat) unsubscribeChat();
+            const roomDataKey = `room_${key}`;
             
-            const chatContainer = document.getElementById('chat-container');
-            const emptyState = document.getElementById('empty-state');
-            
-            // Rule 1 & 2: Simple query to collection, sort in memory if needed.
-            const roomCollection = collection(db, 'artifacts', appId, 'public', 'data', `room_${key}`);
-            
-            // Note: Since we can't use complex orderBy without composite indexes often, 
-            // we will fetch all and just append newly added docs from snapshot.
-            
-            unsubscribeChat = onSnapshot(roomCollection, (snapshot) => {
-                if(snapshot.empty && processedMessageIds.size === 0) {
-                    if(emptyState) emptyState.style.display = 'block';
-                    return;
+            // Function to load all messages
+            const loadMessages = () => {
+                const data = JSON.parse(localStorage.getItem(roomDataKey) || '[]');
+                const emptyState = document.getElementById('empty-state');
+                
+                if (data.length > 0 && emptyState) {
+                    emptyState.style.display = 'none';
                 }
-                
-                if(emptyState) emptyState.style.display = 'none';
 
-                // Sort docs by timestamp client-side to satisfy Rule 2 (No complex queries)
-                const docs = [];
-                snapshot.forEach(doc => docs.push({id: doc.id, ...doc.data()}));
-                docs.sort((a, b) => {
-                    const tA = a.timestamp ? a.timestamp.toMillis() : Date.now();
-                    const tB = b.timestamp ? b.timestamp.toMillis() : Date.now();
-                    return tA - tB;
+                data.forEach(msg => {
+                    if (!processedMessageIds.has(msg.id)) {
+                        processedMessageIds.add(msg.id);
+                        processIncomingMessage(msg);
+                    }
                 });
+            };
 
-                docs.forEach(data => {
-                    if (processedMessageIds.has(data.id)) return; // Already processed
-                    processedMessageIds.add(data.id);
-                    processIncomingMessage(data);
-                });
-                
-            }, (error) => {
-                console.error("Firestore Listen Error:", error);
-                document.getElementById('status-text').innerText = "Помилка синхронізації з БД.";
-            });
+            // Initial load
+            loadMessages();
+
+            // Listen for changes from OTHER tabs
+            storageListener = (e) => {
+                if (e.key === roomDataKey) {
+                    loadMessages();
+                }
+            };
+            window.addEventListener('storage', storageListener);
         }
 
         async function processIncomingMessage(msgData) {
             const chatContainer = document.getElementById('chat-container');
-            const isMe = msgData.senderId === currentUser.uid;
+            const emptyState = document.getElementById('empty-state');
+            if (emptyState) emptyState.style.display = 'none';
+
+            // Simulate current user check
+            const isMe = msgData.senderId === currentUserId;
             
             // Create container
             const msgWrapper = document.createElement('div');
