@@ -3,8 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Translator Chat</title>
+    <title>Translator P2P (No Database)</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- PeerJS для прямого з'єднання браузер-браузер без бази даних -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         @supports (font: -apple-system-body) and (-webkit-appearance: none) {
             body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
@@ -22,7 +24,6 @@
         @keyframes slideInLeft { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
         @keyframes slideInRight { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: translateX(0); } }
 
-        /* Typing indicator */
         .typing-indicator span {
             width: 5px; height: 5px; background-color: #86868b; border-radius: 50%; display: inline-block;
             animation: bounce 1.4s infinite ease-in-out both;
@@ -59,17 +60,18 @@
             <div class="h-px bg-white/10 my-2"></div>
 
             <div class="flex flex-col gap-3">
-                <button onclick="createRoom()" class="w-full bg-[#0a84ff] hover:bg-[#0071e3] text-white rounded-xl py-3 font-medium transition-colors">
-                    Створити новий ключ (кімнату)
+                <button onclick="createRoom()" id="btn-create" class="w-full bg-[#0a84ff] hover:bg-[#0071e3] text-white rounded-xl py-3 font-medium transition-colors">
+                    Створити новий ключ (Стати хостом)
                 </button>
                 <div class="flex items-center gap-2">
-                    <input type="text" id="setup-room-key" placeholder="Введіть існуючий ключ..." class="flex-1 bg-black border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-[#0a84ff] transition-colors outline-none">
-                    <button onclick="joinRoom()" class="bg-white/10 hover:bg-white/20 text-white rounded-xl px-4 py-3 font-medium transition-colors">
+                    <input type="text" id="setup-room-key" placeholder="Введіть ключ..." class="flex-1 bg-black border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-[#0a84ff] transition-colors outline-none">
+                    <button onclick="joinRoom()" id="btn-join" class="bg-white/10 hover:bg-white/20 text-white rounded-xl px-4 py-3 font-medium transition-colors">
                         Увійти
                     </button>
                 </div>
             </div>
             <p id="setup-error" class="text-red-500 text-xs text-center hidden"></p>
+            <p id="setup-status" class="text-green-500 text-xs text-center">Система готова. Бази даних не потрібні.</p>
         </div>
     </div>
 
@@ -80,22 +82,27 @@
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8l6 6"/><path d="M4 14l6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="M22 22l-5-10-5 10"/><path d="M14 18h6"/></svg>
             </div>
             <div>
-                <h1 class="text-[15px] font-semibold text-white tracking-tight leading-tight" id="chat-title">Транслятор (Local Test)</h1>
+                <h1 class="text-[15px] font-semibold text-white tracking-tight leading-tight" id="chat-title">Транслятор P2P</h1>
                 <div class="flex items-center gap-1 cursor-pointer hover:text-white transition-colors group" onclick="copyRoomKey()">
                     <p class="text-[11px] text-[#86868b] font-medium" id="room-key-display">Ключ: -</p>
                     <svg class="opacity-0 group-hover:opacity-100 transition-opacity" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                 </div>
             </div>
         </div>
-        <button onclick="leaveRoom()" class="text-[#86868b] hover:text-white transition-colors text-xs font-medium bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-full">
-            Вийти
-        </button>
+        <div class="flex items-center gap-3">
+            <span id="connection-status" class="flex items-center gap-1.5 text-[11px] font-medium text-yellow-500">
+                <span class="w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></span> Очікування...
+            </span>
+            <button onclick="leaveRoom()" class="text-[#86868b] hover:text-white transition-colors text-xs font-medium bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-full">
+                Вийти
+            </button>
+        </div>
     </header>
 
     <main id="chat-container" class="flex-1 overflow-y-auto px-4 pt-20 pb-28 md:px-20 lg:px-64 flex flex-col gap-4 scroll-smooth">
         <div class="text-center mt-10" id="empty-state">
             <p class="text-[#86868b] text-sm">Чат порожній.</p>
-            <p class="text-[#86868b] text-xs mt-1">Скопіюйте ключ зверху та відкрийте іншу вкладку для тесту.</p>
+            <p class="text-[#86868b] text-xs mt-1">Передай ключ співрозмовнику і дочекайся з'єднання.</p>
         </div>
     </main>
 
@@ -105,47 +112,60 @@
                 <textarea 
                     id="message-input" 
                     rows="1"
-                    class="flex-1 bg-transparent text-[#f5f5f7] placeholder-[#86868b] px-4 py-2.5 max-h-[120px] text-[15px] resize-none leading-snug"
-                    placeholder="Напишіть повідомлення..."
+                    disabled
+                    class="flex-1 bg-transparent text-[#f5f5f7] placeholder-[#86868b] px-4 py-2.5 max-h-[120px] text-[15px] resize-none leading-snug disabled:opacity-50"
+                    placeholder="Дочекайтесь з'єднання..."
                     oninput="this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 120) + 'px'"
                 ></textarea>
                 
                 <button 
                     id="send-btn"
                     onclick="sendMessage()" 
+                    disabled
                     class="w-9 h-9 shrink-0 flex items-center justify-center bg-[#0a84ff] text-white hover:bg-[#0071e3] rounded-full transition-all active:scale-90 disabled:opacity-50 disabled:bg-gray-600 mb-0.5 mr-0.5"
                 >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
                 </button>
             </div>
-            <p class="text-center text-[10px] text-[#86868b] mt-3 font-medium" id="status-text">Переклад працює через Pollinations AI | Локальний режим (без БД)</p>
+            <p class="text-center text-[10px] text-[#86868b] mt-3 font-medium">PeerJS (Пряме з'єднання) | Переклад: AI</p>
         </div>
     </footer>
 
     <script>
-        // Variables
-        let currentUserId = getOrCreateUserId();
-        let currentRoomKey, myName, myLang;
-        let processedMessageIds = new Set();
-        let storageListener = null;
+        // WebRTC P2P Variables
+        let peer = null;
+        let p2pConnection = null;
+        let myId = 'user_' + Math.random().toString(36).substr(2, 9);
+        let myName = '';
+        let myLang = '';
+        let currentRoomKey = '';
 
-        // Generate a fake user ID for local testing (Isolated per tab)
-        function getOrCreateUserId() {
-            let id = sessionStorage.getItem('tab_user_id');
-            if (!id) {
-                id = 'user_' + Math.random().toString(36).substr(2, 9);
-                sessionStorage.setItem('tab_user_id', id);
-            }
-            return id;
-        }
-
-        // Global functions accessible from HTML
         window.createRoom = () => {
             if (!validateSetup()) return;
-            const newKey = Math.random().toString(36).substring(2, 8).toUpperCase();
-            // Create empty room in local storage
-            localStorage.setItem(`room_${newKey}`, JSON.stringify([]));
-            enterChat(newKey);
+            
+            // Генеруємо випадковий ключ (це буде ID хоста в мережі PeerJS)
+            currentRoomKey = "ROOM-" + Math.random().toString(36).substring(2, 8).toUpperCase();
+            
+            initChatUI(currentRoomKey);
+            updateConnectionStatus('waiting');
+
+            // Ініціалізуємо PeerJS як Хост (створюємо сервер з нашим ключем)
+            peer = new Peer(currentRoomKey);
+
+            peer.on('open', (id) => {
+                console.log('Кімната створена з ID:', id);
+            });
+
+            // Чекаємо, поки хтось підключиться
+            peer.on('connection', (conn) => {
+                p2pConnection = conn;
+                setupConnectionListeners();
+            });
+
+            peer.on('error', (err) => {
+                alert("Помилка P2P мережі: " + err.type);
+                leaveRoom();
+            });
         };
 
         window.joinRoom = () => {
@@ -155,77 +175,82 @@
                 showSetupError("Введіть ключ кімнати");
                 return;
             }
-            enterChat(keyInput);
+            
+            currentRoomKey = keyInput;
+            initChatUI(currentRoomKey);
+            updateConnectionStatus('connecting');
+
+            // Ініціалізуємо PeerJS як Клієнт (отримуємо випадковий ID)
+            peer = new Peer();
+
+            peer.on('open', (id) => {
+                console.log('Мій ID клієнта:', id);
+                // Підключаємося до Хоста за його ключем
+                p2pConnection = peer.connect(currentRoomKey);
+                setupConnectionListeners();
+            });
+
+            peer.on('error', (err) => {
+                alert("Помилка підключення. Можливо, хост вийшов з кімнати. (" + err.type + ")");
+                leaveRoom();
+            });
         };
 
-        window.leaveRoom = () => {
-            if (storageListener) {
-                window.removeEventListener('storage', storageListener);
-                storageListener = null;
-            }
-            processedMessageIds.clear();
-            document.getElementById('chat-container').innerHTML = `
-                <div class="text-center mt-10" id="empty-state">
-                    <p class="text-[#86868b] text-sm">Чат порожній.</p>
-                </div>
-            `;
-            document.getElementById('setup-screen').classList.remove('hidden');
-            document.getElementById('setup-screen').style.opacity = '1';
-            document.getElementById('setup-screen').style.pointerEvents = 'auto';
-        };
-
-        window.copyRoomKey = () => {
-            if (currentRoomKey) {
-                const el = document.createElement('textarea');
-                el.value = currentRoomKey;
-                document.body.appendChild(el);
-                el.select();
-                document.execCommand('copy');
-                document.body.removeChild(el);
+        function setupConnectionListeners() {
+            p2pConnection.on('open', () => {
+                updateConnectionStatus('connected');
+                document.getElementById('message-input').disabled = false;
+                document.getElementById('message-input').placeholder = "Напишіть повідомлення...";
+                document.getElementById('send-btn').disabled = false;
                 
-                const display = document.getElementById('room-key-display');
-                display.innerText = "Скопійовано!";
-                setTimeout(() => { display.innerText = `Ключ: ${currentRoomKey}`; }, 2000);
-            }
-        };
+                // Відправляємо технічне повідомлення, щоб представитись
+                p2pConnection.send({
+                    type: 'system',
+                    text: `${myName} приєднався до чату!`
+                });
+            });
 
-        window.sendMessage = async () => {
+            p2pConnection.on('data', (data) => {
+                if (data.type === 'chat') {
+                    processIncomingMessage(data);
+                } else if (data.type === 'system') {
+                    console.log("System:", data.text);
+                }
+            });
+
+            p2pConnection.on('close', () => {
+                updateConnectionStatus('disconnected');
+                document.getElementById('message-input').disabled = true;
+                document.getElementById('send-btn').disabled = true;
+                alert("Співрозмовник відключився.");
+            });
+        }
+
+        window.sendMessage = () => {
             const input = document.getElementById('message-input');
             const text = input.value.trim();
-            if (!text || !currentRoomKey) return;
+            
+            if (!text || !p2pConnection) return;
 
             input.value = '';
             input.style.height = 'auto';
-            document.getElementById('send-btn').disabled = true;
 
-            try {
-                const message = {
-                    id: 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
-                    senderId: currentUserId,
-                    senderName: myName,
-                    originalText: text,
-                    sourceLang: myLang,
-                    timestamp: Date.now()
-                };
+            const messageData = {
+                type: 'chat',
+                id: Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                senderId: myId,
+                senderName: myName,
+                originalText: text,
+                sourceLang: myLang
+            };
 
-                const roomKey = `room_${currentRoomKey}`;
-                let roomData = JSON.parse(localStorage.getItem(roomKey) || '[]');
-                roomData.push(message);
-                localStorage.setItem(roomKey, JSON.stringify(roomData));
+            // Відправляємо через P2P
+            p2pConnection.send(messageData);
 
-                // Storage event doesn't fire for the tab that made the change, so we trigger UI update manually
-                processIncomingMessage(message);
-
-            } catch (error) {
-                console.error("Error sending:", error);
-                alert("Помилка відправки.");
-            } finally {
-                document.getElementById('send-btn').disabled = false;
-                input.focus();
-            }
+            // Відображаємо у себе
+            processIncomingMessage(messageData, true);
         };
 
-        // Enter press handler
         document.getElementById('message-input').addEventListener('keydown', function(e) {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -233,76 +258,13 @@
             }
         });
 
-        // Helpers
-        function validateSetup() {
-            myName = document.getElementById('setup-name').value.trim();
-            myLang = document.getElementById('setup-lang').value;
-            if (!myName) {
-                showSetupError("Введіть своє ім'я");
-                return false;
-            }
-            return true;
-        }
-
-        function showSetupError(msg) {
-            const el = document.getElementById('setup-error');
-            el.innerText = msg;
-            el.classList.remove('hidden');
-        }
-
-        function enterChat(key) {
-            currentRoomKey = key;
-            document.getElementById('room-key-display').innerText = `Ключ: ${key}`;
-            
-            const setupScreen = document.getElementById('setup-screen');
-            setupScreen.style.opacity = '0';
-            setupScreen.style.pointerEvents = 'none';
-            setTimeout(() => setupScreen.classList.add('hidden'), 300);
-
-            listenToRoom(key);
-        }
-
-        function listenToRoom(key) {
-            const roomDataKey = `room_${key}`;
-            
-            // Function to load all messages
-            const loadMessages = () => {
-                const data = JSON.parse(localStorage.getItem(roomDataKey) || '[]');
-                const emptyState = document.getElementById('empty-state');
-                
-                if (data.length > 0 && emptyState) {
-                    emptyState.style.display = 'none';
-                }
-
-                data.forEach(msg => {
-                    if (!processedMessageIds.has(msg.id)) {
-                        processedMessageIds.add(msg.id);
-                        processIncomingMessage(msg);
-                    }
-                });
-            };
-
-            // Initial load
-            loadMessages();
-
-            // Listen for changes from OTHER tabs
-            storageListener = (e) => {
-                if (e.key === roomDataKey) {
-                    loadMessages();
-                }
-            };
-            window.addEventListener('storage', storageListener);
-        }
-
-        async function processIncomingMessage(msgData) {
+        async function processIncomingMessage(msgData, forceIsMe = false) {
             const chatContainer = document.getElementById('chat-container');
             const emptyState = document.getElementById('empty-state');
-            if (emptyState) emptyState.style.display = 'none';
+            if(emptyState) emptyState.style.display = 'none';
 
-            // Simulate current user check
-            const isMe = msgData.senderId === currentUserId;
+            const isMe = forceIsMe || msgData.senderId === myId;
             
-            // Create container
             const msgWrapper = document.createElement('div');
             msgWrapper.className = `flex flex-col gap-1 w-full max-w-3xl mx-auto ${isMe ? 'items-end' : 'items-start'} mt-2 ${isMe ? 'message-out' : 'message-in'}`;
             msgWrapper.id = `msg-${msgData.id}`;
@@ -314,7 +276,6 @@
             msgWrapper.appendChild(nameLabel);
 
             const bubble = document.createElement('div');
-            // Styling depending on sender
             if (isMe) {
                 bubble.className = "bg-[#0a84ff] text-white px-4 py-2.5 rounded-[20px] rounded-br-sm max-w-[85%] whitespace-pre-wrap shadow-sm text-[15px] leading-snug";
                 bubble.innerText = msgData.originalText;
@@ -324,16 +285,13 @@
                 bubble.className = "bg-[#1c1c1e] text-[#f5f5f7] border border-white/5 px-4 py-2.5 rounded-[20px] rounded-tl-sm max-w-[85%] whitespace-pre-wrap shadow-sm text-[15px] leading-snug";
                 msgWrapper.appendChild(bubble);
                 
-                // Translation Logic
                 if (msgData.sourceLang === myLang) {
                     bubble.innerText = msgData.originalText;
                     scrollToBottom();
                 } else {
-                    // Show Loading
                     bubble.innerHTML = `<div class="typing-indicator flex gap-1 items-center justify-center py-1"><span></span><span></span><span></span></div>`;
                     scrollToBottom();
                     
-                    // Call AI to translate
                     try {
                         const translatedText = await translateText(msgData.originalText, msgData.sourceLang, myLang);
                         bubble.innerHTML = "";
@@ -355,8 +313,87 @@
             }
         }
 
+        // Helpers
+        function validateSetup() {
+            myName = document.getElementById('setup-name').value.trim();
+            myLang = document.getElementById('setup-lang').value;
+            if (!myName) {
+                showSetupError("Введіть своє ім'я");
+                return false;
+            }
+            return true;
+        }
+
+        function showSetupError(msg) {
+            const el = document.getElementById('setup-error');
+            el.innerText = msg;
+            el.classList.remove('hidden');
+        }
+
+        function initChatUI(key) {
+            document.getElementById('room-key-display').innerText = `Ключ: ${key}`;
+            const setupScreen = document.getElementById('setup-screen');
+            setupScreen.style.opacity = '0';
+            setupScreen.style.pointerEvents = 'none';
+            setTimeout(() => setupScreen.classList.add('hidden'), 300);
+        }
+
+        function updateConnectionStatus(status) {
+            const el = document.getElementById('connection-status');
+            if(status === 'waiting') {
+                el.innerHTML = `<span class="w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></span> Очікування...`;
+                el.className = 'flex items-center gap-1.5 text-[11px] font-medium text-yellow-500';
+            } else if (status === 'connecting') {
+                el.innerHTML = `<span class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span> З'єднання...`;
+                el.className = 'flex items-center gap-1.5 text-[11px] font-medium text-blue-500';
+            } else if (status === 'connected') {
+                el.innerHTML = `<span class="w-2 h-2 rounded-full bg-green-500"></span> З'єднано`;
+                el.className = 'flex items-center gap-1.5 text-[11px] font-medium text-green-500';
+            } else {
+                el.innerHTML = `<span class="w-2 h-2 rounded-full bg-red-500"></span> Відключено`;
+                el.className = 'flex items-center gap-1.5 text-[11px] font-medium text-red-500';
+            }
+        }
+
+        window.leaveRoom = () => {
+            if(p2pConnection) {
+                p2pConnection.close();
+                p2pConnection = null;
+            }
+            if(peer) {
+                peer.destroy();
+                peer = null;
+            }
+            
+            document.getElementById('chat-container').innerHTML = `
+                <div class="text-center mt-10" id="empty-state">
+                    <p class="text-[#86868b] text-sm">Чат порожній.</p>
+                </div>
+            `;
+            document.getElementById('message-input').disabled = true;
+            document.getElementById('send-btn').disabled = true;
+            
+            document.getElementById('setup-screen').classList.remove('hidden');
+            document.getElementById('setup-screen').style.opacity = '1';
+            document.getElementById('setup-screen').style.pointerEvents = 'auto';
+        };
+
+        window.copyRoomKey = () => {
+            if (currentRoomKey) {
+                const el = document.createElement('textarea');
+                el.value = currentRoomKey;
+                document.body.appendChild(el);
+                el.select();
+                document.execCommand('copy');
+                document.body.removeChild(el);
+                
+                const display = document.getElementById('room-key-display');
+                display.innerText = "Скопійовано!";
+                setTimeout(() => { display.innerText = `Ключ: ${currentRoomKey}`; }, 2000);
+            }
+        };
+
         async function translateText(text, fromLang, toLang) {
-            // Using Pollinations AI as a free translating endpoint
             const prompt = `You are a strict translator API. Translate the following text from ISO language code '${fromLang}' to ISO language code '${toLang}'. Return ONLY the translated text, without quotes, explanations, or conversational filler. Text to translate: "${text}"`;
             
             const response = await fetch('https://text.pollinations.ai/', {
