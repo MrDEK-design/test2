@@ -129,12 +129,12 @@
         let processedMessageIds = new Set();
         let storageListener = null;
 
-        // Generate a fake user ID for local testing
+        // Generate a fake user ID for local testing (Isolated per tab)
         function getOrCreateUserId() {
-            let id = localStorage.getItem('local_user_id');
+            let id = sessionStorage.getItem('tab_user_id');
             if (!id) {
                 id = 'user_' + Math.random().toString(36).substr(2, 9);
-                localStorage.setItem('local_user_id', id);
+                sessionStorage.setItem('tab_user_id', id);
             }
             return id;
         }
